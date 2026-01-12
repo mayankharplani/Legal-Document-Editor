@@ -34,7 +34,7 @@ A production-ready, WYSIWYG rich text editor built with **Next.js**, **Tiptap**,
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone [https://github.com/mayankharplani/Legal-Document-Editor.git]
 cd tiptap-pagination-editor
 
 # Install dependencies
