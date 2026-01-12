@@ -6,170 +6,124 @@ import { PAGE_CONFIG } from '@/utils/constants';
 export const PageBreakPluginKey = new PluginKey('pageBreak');
 
 export const PageBreakExtension = Extension.create({
-    name: 'pageBreak',
+  name: 'pageBreak',
 
-    addProseMirrorPlugins() {
-        return [
-            new Plugin({
-                key: PageBreakPluginKey,
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: PageBreakPluginKey,
 
-                state: {
-                    init() {
-                        return DecorationSet.empty;
-                    },
-                    apply(tr, decorationSet) {
-                        const meta = tr.getMeta(PageBreakPluginKey);
-                        if (meta) {
-                            return meta;
-                        }
-                        return decorationSet.map(tr.mapping, tr.doc);
-                    },
-                },
+        state: {
+          init() {
+            return DecorationSet.empty;
+          },
+          apply(tr, decorations) {
+            const meta = tr.getMeta(PageBreakPluginKey);
+            return meta ?? decorations.map(tr.mapping, tr.doc);
+          },
+        },
 
-                view(editorView) {
-                    const updateDecorations = () => {
-                        const { state } = editorView;
-                        const decorations: Decoration[] = [];
-                        const { doc } = state;
+        view(editorView) {
+          const maxPageHeight = PAGE_CONFIG.CONTENT_HEIGHT_PX;
 
-                        let currentPageHeight = 0;
-                        let pageNumber = 1;
-                        // Use the actual content height that will be used in print
-                        const maxPageHeight = PAGE_CONFIG.CONTENT_HEIGHT_PX;
+          const updatePageBreaks = () => {
+            const { doc } = editorView.state;
+            const decorations: Decoration[] = [];
 
-                        // Get the editor container to measure from the top
-                        const editorContainer = editorView.dom.closest('.editor-container') as HTMLElement;
-                        const containerTop = editorContainer?.getBoundingClientRect().top || 0;
+            let usedHeight = 0;
+            const breakPositions: number[] = [];
 
-                        console.log('🔍 PageBreak Plugin: Calculating decorations...');
-                        console.log('📏 Max page height:', maxPageHeight, 'px');
-                        console.log('📍 Container top:', containerTop, 'px');
+            doc.descendants((node, pos) => {
+              if (!node.isBlock || node.type.name === 'doc') return true;
 
-                        // Track positions for page breaks
-                        const pageBreakPositions: number[] = [];
-                        let accumulatedHeight = 0;
+              const dom = editorView.domAtPos(pos + 1).node;
+              const element =
+                dom instanceof HTMLElement ? dom : dom.parentElement;
 
-                        // First pass: calculate where page breaks should be
-                        doc.descendants((node, pos) => {
-                            if (!node.isBlock || node.type.name === 'doc') {
-                                return true;
-                            }
+              if (!element) return true;
 
-                            try {
-                                const domAtPos = editorView.domAtPos(pos + 1);
-                                let element: HTMLElement | null = null;
+              const height = element.getBoundingClientRect().height;
 
-                                if (domAtPos.node.nodeType === Node.ELEMENT_NODE) {
-                                    element = domAtPos.node as HTMLElement;
-                                } else if (domAtPos.node.parentElement) {
-                                    element = domAtPos.node.parentElement;
-                                }
+              if (usedHeight + height > maxPageHeight && usedHeight > 0) {
+                breakPositions.push(pos);
+                usedHeight = height;
+              } else {
+                usedHeight += height;
+              }
 
-                                if (element) {
-                                    const rect = element.getBoundingClientRect();
-                                    const nodeHeight = rect.height;
+              return true;
+            });
 
-                                    // Check if adding this node would exceed the page
-                                    if (accumulatedHeight + nodeHeight > maxPageHeight && accumulatedHeight > 0) {
-                                        console.log(`✂️ Page break needed at pos ${pos} (accumulated: ${accumulatedHeight}px, node: ${nodeHeight}px)`);
-                                        pageBreakPositions.push(pos);
-                                        accumulatedHeight = nodeHeight;
-                                    } else {
-                                        accumulatedHeight += nodeHeight;
-                                    }
-                                }
-                            } catch (e) {
-                                console.error('❌ Error measuring node:', e);
-                            }
+            breakPositions.forEach((pos, index) => {
+              decorations.push(
+                Decoration.widget(
+                  pos,
+                  () => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'page-break-decoration';
+                    wrapper.contentEditable = 'false';
 
-                            return true;
-                        });
+                    wrapper.style.cssText = `
+                      height: 1px;
+                      margin: 40px -${PAGE_CONFIG.MARGIN_PX}px;
+                      background: #d1d5db;
+                      position: relative;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      page-break-after: always;
+                      break-after: page;
+                    `;
 
-                        // Second pass: create decorations at the calculated positions
-                        pageBreakPositions.forEach((pos, index) => {
-                            const decoration = Decoration.widget(
-                                pos,
-                                () => {
-                                    const pageBreak = document.createElement('div');
-                                    pageBreak.className = 'page-break-decoration';
-                                    pageBreak.contentEditable = 'false';
-                                    pageBreak.setAttribute('data-page-number', String(index + 1));
+                    const label = document.createElement('div');
+                    label.textContent = `Page ${index + 2}`;
+                    label.style.cssText = `
+                      background: white;
+                      padding: 4px 12px;
+                      border: 1px solid #d1d5db;
+                      border-radius: 4px;
+                      font-size: 11px;
+                      color: #6b7280;
+                      position: absolute;
+                      top: 50%;
+                      transform: translateY(-50%);
+                      user-select: none;
+                    `;
 
-                                    pageBreak.style.cssText = `
-                    height: 1px;
-                    margin: 40px -${PAGE_CONFIG.MARGIN_PX}px;
-                    background: #d1d5db;
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    user-select: none;
-                    page-break-after: always;
-                    break-after: page;
-                  `;
+                    wrapper.appendChild(label);
+                    return wrapper;
+                  },
+                  { side: -1, key: `page-break-${index}` }
+                )
+              );
+            });
 
-                                    const pageLabel = document.createElement('div');
-                                    pageLabel.textContent = `Page ${index + 2}`;
-                                    pageLabel.style.cssText = `
-                    background: white;
-                    color: #6b7280;
-                    padding: 4px 12px;
-                    border: 1px solid #d1d5db;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                    position: absolute;
-                    top: 50%;
-                    transform: translateY(-50%);
-                  `;
-                                    pageBreak.appendChild(pageLabel);
+            const tr = editorView.state.tr;
+            tr.setMeta(
+              PageBreakPluginKey,
+              DecorationSet.create(doc, decorations)
+            );
+            editorView.dispatch(tr);
+          };
 
-                                    return pageBreak;
-                                },
-                                {
-                                    side: -1,
-                                    key: `page-break-${index}`,
-                                }
-                            );
+          // initial render
+          setTimeout(updatePageBreaks, 200);
 
-                            decorations.push(decoration);
-                        });
+          return {
+            update(view, prevState) {
+              if (view.state.doc !== prevState.doc) {
+                setTimeout(updatePageBreaks, 100);
+              }
+            },
+          };
+        },
 
-                        console.log(`✅ Total page breaks: ${pageBreakPositions.length}`);
-                        console.log(`📊 Total pages: ${pageBreakPositions.length + 1}`);
-
-                        // Apply decorations
-                        const tr = editorView.state.tr;
-                        tr.setMeta(PageBreakPluginKey, DecorationSet.create(doc, decorations));
-                        editorView.dispatch(tr);
-                    };
-
-                    // Initial update
-                    setTimeout(() => {
-                        console.log('🚀 PageBreak Plugin: Initial decoration update');
-                        updateDecorations();
-                    }, 300);
-
-                    return {
-                        update(view, prevState) {
-                            if (view.state.doc !== prevState.doc) {
-                                console.log('📝 PageBreak Plugin: Document changed, updating decorations');
-                                setTimeout(() => updateDecorations(), 100);
-                            }
-                        },
-                        destroy() {
-                            console.log('🛑 PageBreak Plugin: Destroyed');
-                        },
-                    };
-                },
-
-                props: {
-                    decorations(state) {
-                        return this.getState(state);
-                    },
-                },
-            }),
-        ];
-    },
+        props: {
+          decorations(state) {
+            return this.getState(state);
+          },
+        },
+      }),
+    ];
+  },
 });
