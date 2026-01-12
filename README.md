@@ -148,4 +148,4 @@ After researching various approaches (CSS Paged Media, PDF.js, custom splitting)
 
 ---
 
-**Live Demo:** [Deploy to see live URL]
+**Live Demo:** [legal-document-editor-alpha.vercel.app]
